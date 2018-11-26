@@ -160,7 +160,14 @@ func GetServices() ([]EurekaApplication, error) {
 	}
 }
 
-func GetRandomServerAddress(eurekaInstances []EurekaInstance) string{
+func GetRandomServerAddress(url string, appName string) string{
+	discoveryServerUrl = url
+	eurekaInstances, err := GetServiceInstances(appName)
+	if err != nil {
+		println(err.Error())
+		return ""
+	}
+
 	rand.Seed(time.Now().Unix())
 	i := rand.Intn(len(eurekaInstances))
 	for _, ins := range(eurekaInstances){
