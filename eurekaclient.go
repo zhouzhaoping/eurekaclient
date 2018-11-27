@@ -50,18 +50,43 @@ var regTpl =`{
 
 
 type EurekaClient struct {
-	discoveryServerUrl string // = "http://10.16.58.219:9998"// TODO:to be list
+	urlCur int
+	discoveryServerUrls []string
 	appName string
 
-	// for server
+	// for Service server
 	instanceId string
 
-	// for client
+	// for Service client
 	instances []EurekaInstance // todo update
 }
 
-func NewEurekaClient (eurekaUrl string, appName string )*EurekaClient{
-	return &EurekaClient{discoveryServerUrl: eurekaUrl, appName : appName, instances:nil}
+func NewEurekaClient (eurekaUrls []string, appName string )*EurekaClient{
+	return &EurekaClient{
+		urlCur : 0,
+		discoveryServerUrls: eurekaUrls,
+		appName : appName,
+		instances:nil,
+	}
+}
+
+/**
+ * Tools for retry and update
+ */
+func (e *EurekaClient) ChoiceDiscoveryServerUrl() string {
+	return e.discoveryServerUrls[e.urlCur]
+}
+func (e *EurekaClient) NextDiscoveryServerUrl() string {
+	e.urlCur = (e.urlCur + 1) % len(e.discoveryServerUrls)
+	return e.discoveryServerUrls[e.urlCur]
+}
+func (e *EurekaClient) StartUpdateInstance() { //todo sync
+	e.GetServiceInstances()
+	go func(){
+		time.Sleep(30*time.Second)
+		fmt.Println("Update instance...")
+		e.GetServiceInstances()
+	}()
 }
 
 /**
@@ -91,7 +116,7 @@ func (e *EurekaClient) Register(port string, securePort string) {
 
 	// Register.
 	registerAction := HttpAction{
-		Url:         e.discoveryServerUrl + "/eureka/apps/" + e.appName,
+		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName,
 		Method:      "POST",
 		ContentType: "application/json;charset=UTF-8",
 		Body:        tpl,
@@ -106,7 +131,7 @@ func (e *EurekaClient) Register(port string, securePort string) {
 			go e.startHeartbeat()
 			break
 		} else {
-			fmt.Println("Registration attempt of " + e.appName + " failed...")//todo not always retry, change other url
+			fmt.Println("Registration attempt of " + e.appName + " failed...")
 			time.Sleep(time.Second * 5)
 		}
 	}
@@ -119,9 +144,9 @@ func (e *EurekaClient) Register(port string, securePort string) {
  */
 func (e *EurekaClient) GetServiceInstances() (error) {
 	var m EurekaServiceResponse
-	fmt.Println("Querying eureka for instances of " + e.appName + " at: " + e.discoveryServerUrl + "/eureka/apps/" + e.appName)
+	fmt.Println("Querying eureka for instances of " + e.appName + " at: " + e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName)
 	queryAction := HttpAction{
-		Url:         e.discoveryServerUrl + "/eureka/apps/" + e.appName,
+		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName,
 		Method:      "GET",
 		Accept:      "application/json;charset=UTF-8",
 		ContentType: "application/json;charset=UTF-8",
@@ -147,9 +172,9 @@ func (e *EurekaClient) GetServiceInstances() (error) {
 // unuse
 func (e *EurekaClient) GetServices() ([]EurekaApplication, error) {
 	var m EurekaApplicationsRootResponse
-	fmt.Println("Querying eureka for services at: " + e.discoveryServerUrl + "/eureka/apps")
+	fmt.Println("Querying eureka for services at: " + e.ChoiceDiscoveryServerUrl() + "/eureka/apps")
 	queryAction := HttpAction{
-		Url:         e.discoveryServerUrl + "/eureka/apps",
+		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps",
 		Method:      "GET",
 		Accept:      "application/json;charset=UTF-8",
 		ContentType: "application/json;charset=UTF-8",
@@ -169,9 +194,7 @@ func (e *EurekaClient) GetServices() ([]EurekaApplication, error) {
 	}
 }
 
-func (e *EurekaClient)GetRandomServerAddress() string{
-	e.GetServiceInstances() // todo update
-
+func (e *EurekaClient)GetRandomServerAddress() string {
 	rand.Seed(time.Now().Unix())
 	i := rand.Intn(len(e.instances))
 	for _, ins := range(e.instances){
@@ -193,7 +216,7 @@ func (e *EurekaClient)startHeartbeat() {
 
 func (e *EurekaClient)heartbeat() {
 	heartbeatAction := HttpAction{
-		Url:         e.discoveryServerUrl + "/eureka/apps/" + e.appName + "/" + e.instanceId,
+		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName + "/" + e.instanceId,
 		Method:      "PUT",
 		ContentType: "application/json;charset=UTF-8",
 	}
@@ -205,7 +228,7 @@ func (e *EurekaClient)deregister() {
 	fmt.Println("Trying to deregister application " + e.appName + "...")
 	// Deregister
 	deregisterAction := HttpAction{
-		Url:         e.discoveryServerUrl + "/eureka/apps/" + e.appName + "/" + e.instanceId,
+		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName + "/" + e.instanceId,
 		ContentType: "application/json;charset=UTF-8",
 		Method:      "DELETE",
 	}
