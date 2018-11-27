@@ -2,7 +2,7 @@ package eurekaclient
 
 /**
   Defines a graph of structs that conforms to a part of the return type of the Eureka "get instances for appId", e.g:
-  GET /eureka/v2/apps/appID
+  GET /eureka/apps/appID
   The root is the EurekaServiceResponse which contains a single EurekaApplication, which in its turn contains an array
   of EurekaInstance instances.
 */
@@ -19,7 +19,7 @@ type EurekaApplicationsRootResponse struct {
 
 type EurekaApplicationsResponse struct {
 	Version      string              `json:"versions__delta"`
-	AppsHashcode string              `json:"versions__delta"`
+	AppsHashcode string              `json:"apps__hashcode"`
 	Applications []EurekaApplication `json:"application"`
 }
 
