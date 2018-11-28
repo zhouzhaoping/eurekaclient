@@ -14,5 +14,6 @@ eureka version = 1
 1. Fetch Registries：update in StartUpdateInstance(), get address in GetRandomServerAddress()
 
 ## TODO
-1. cache instance, StartUpdateInstance() update every 30s [yes]
-2. choice register center [no]
+1. cache instance, StartUpdateInstance() update every 30s [11.27]
+2. choice register center, in order [11.28]
+3. instance need sync [11.28]

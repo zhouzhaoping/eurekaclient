@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"math/rand"
 	"strconv"
+	"sync"
 )
 
 var regHostName = `dmo-${appName}-${uuid}`
@@ -58,7 +59,8 @@ type EurekaClient struct {
 	instanceId string
 
 	// for Service client
-	instances []EurekaInstance // todo update
+	mu      sync.Mutex
+	instances []EurekaInstance
 }
 
 func NewEurekaClient (eurekaUrls []string, appName string )*EurekaClient{
@@ -71,15 +73,8 @@ func NewEurekaClient (eurekaUrls []string, appName string )*EurekaClient{
 }
 
 /**
- * Tools for retry and update
+ * Tools for update
  */
-func (e *EurekaClient) ChoiceDiscoveryServerUrl() string {
-	return e.discoveryServerUrls[e.urlCur]
-}
-func (e *EurekaClient) NextDiscoveryServerUrl() string {
-	e.urlCur = (e.urlCur + 1) % len(e.discoveryServerUrls)
-	return e.discoveryServerUrls[e.urlCur]
-}
 func (e *EurekaClient) StartUpdateInstance() { //todo sync
 	e.GetServiceInstances()
 	go func(){
@@ -116,14 +111,15 @@ func (e *EurekaClient) Register(port string, securePort string) {
 
 	// Register.
 	registerAction := HttpAction{
-		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName,
+		Url:         "${discoveryServerUrl}" + "/eureka/apps/" + e.appName,
 		Method:      "POST",
 		ContentType: "application/json;charset=UTF-8",
 		Body:        tpl,
 	}
 
 	var result bool
-	for {
+	for _,url := range e.discoveryServerUrls {
+		registerAction.Url = url + "/eureka/apps/" + e.appName
 		result = doHttpRequest(registerAction)
 		if result {
 			fmt.Println("Registration OK")
@@ -143,59 +139,78 @@ func (e *EurekaClient) Register(port string, securePort string) {
  * them as a EurekaApplication struct.
  */
 func (e *EurekaClient) GetServiceInstances() (error) {
+
 	var m EurekaServiceResponse
-	fmt.Println("Querying eureka for instances of " + e.appName + " at: " + e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName)
+	fmt.Println("Querying eureka for instances of " + e.appName + " at: " + "${discoveryServerUrl}" + "/eureka/apps/" + e.appName)
 	queryAction := HttpAction{
-		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName,
+		Url:         "${discoveryServerUrl}" + "/eureka/apps/" + e.appName,
 		Method:      "GET",
 		Accept:      "application/json;charset=UTF-8",
 		ContentType: "application/json;charset=UTF-8",
 	}
-	log.Println("Doing queryAction using URL: " + queryAction.Url)
-	bytes, err := executeQuery(queryAction)
-	if err != nil {
-		e.instances = nil
-		return err
-	} else {
-		fmt.Println("Got instances response from Eureka:\n" + string(bytes))
-		err := json.Unmarshal(bytes, &m)
+	var err error
+	var bytes []byte
+	for _,url := range e.discoveryServerUrls {
+		queryAction.Url = url + "/eureka/apps/" + e.appName
+		log.Println("Doing queryAction using URL: " + queryAction.Url)
+		bytes, err = executeQuery(queryAction)
 		if err != nil {
-			fmt.Println("Problem parsing JSON response from Eureka: " + err.Error())
-			e.instances = nil
+			continue
+		} else {
+			fmt.Println("Got instances response from Eureka:\n" + string(bytes))
+			err = json.Unmarshal(bytes, &m)
+			if err != nil {
+				fmt.Println("Problem parsing JSON response from Eureka: " + err.Error())
+				continue
+			}
+			e.mu.Lock()
+			e.instances = m.Application.Instance
+			e.mu.Unlock()
 			return err
 		}
-		e.instances = m.Application.Instance
-		return err
 	}
+	e.mu.Lock()
+	e.instances = nil
+	e.mu.Unlock()
+	return err
 }
 
 // unuse
 func (e *EurekaClient) GetServices() ([]EurekaApplication, error) {
 	var m EurekaApplicationsRootResponse
-	fmt.Println("Querying eureka for services at: " + e.ChoiceDiscoveryServerUrl() + "/eureka/apps")
+	fmt.Println("Querying eureka for services at: " + "${discoveryServerUrl}"+ "/eureka/apps")
 	queryAction := HttpAction{
-		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps",
+		Url:        "${discoveryServerUrl}" + "/eureka/apps",
 		Method:      "GET",
 		Accept:      "application/json;charset=UTF-8",
 		ContentType: "application/json;charset=UTF-8",
 	}
-	log.Println("Doing queryAction using URL: " + queryAction.Url)
-	bytes, err := executeQuery(queryAction)
-	if err != nil {
-		return nil, err
-	} else {
-		fmt.Println("Got services response from Eureka:\n" + string(bytes))
-		err := json.Unmarshal(bytes, &m)
+
+	var err error
+	var bytes []byte
+	for _,url := range e.discoveryServerUrls {
+		queryAction.Url = url + "/eureka/apps"
+		log.Println("Doing queryAction using URL: " + queryAction.Url)
+		bytes, err = executeQuery(queryAction)
 		if err != nil {
-			fmt.Println("Problem parsing JSON response from Eureka: " + err.Error())
-			return nil, err
+			continue
+		} else {
+			fmt.Println("Got services response from Eureka:\n" + string(bytes))
+			err = json.Unmarshal(bytes, &m)
+			if err != nil {
+				fmt.Println("Problem parsing JSON response from Eureka: " + err.Error())
+				continue
+			}
+			return m.Resp.Applications, nil
 		}
-		return m.Resp.Applications, nil
 	}
+	return nil, err
 }
 
 func (e *EurekaClient)GetRandomServerAddress() string {
 	rand.Seed(time.Now().Unix())
+
+	e.mu.Lock()
 	i := rand.Intn(len(e.instances))
 	for _, ins := range(e.instances){
 		address := ins.IpAddr + ":" + strconv.Itoa(ins.Port.Port)
@@ -203,6 +218,8 @@ func (e *EurekaClient)GetRandomServerAddress() string {
 	}
 	address := e.instances[i].IpAddr + ":" + strconv.Itoa(e.instances[i].Port.Port)
 	fmt.Println("choice address:" + address + ", hostname:" +  e.instances[i].HostName)
+	e.mu.Unlock()
+
 	return address
 }
 
@@ -215,25 +232,46 @@ func (e *EurekaClient)startHeartbeat() {
 }
 
 func (e *EurekaClient)heartbeat() {
+
 	heartbeatAction := HttpAction{
-		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName + "/" + e.instanceId,
+		Url:         "${discoveryServerUrl}" + "/eureka/apps/" + e.appName + "/" + e.instanceId,
 		Method:      "PUT",
 		ContentType: "application/json;charset=UTF-8",
 	}
-	fmt.Println("Issuing heartbeat to " + heartbeatAction.Url)
-	doHttpRequest(heartbeatAction)
+
+	var result bool
+	for _,url := range e.discoveryServerUrls {
+		heartbeatAction.Url = url + "/eureka/apps/" + e.appName + "/" + e.instanceId
+		result = doHttpRequest(heartbeatAction)
+		if result {
+			fmt.Println("Issuing heartbeat to " + heartbeatAction.Url)
+			break
+		} else {
+			fmt.Println("Retry heartbeat...")
+		}
+	}
 }
 
 func (e *EurekaClient)deregister() {
+
 	fmt.Println("Trying to deregister application " + e.appName + "...")
 	// Deregister
 	deregisterAction := HttpAction{
-		Url:         e.ChoiceDiscoveryServerUrl() + "/eureka/apps/" + e.appName + "/" + e.instanceId,
+		Url:         "${discoveryServerUrl}" + "/eureka/apps/" + e.appName + "/" + e.instanceId,
 		ContentType: "application/json;charset=UTF-8",
 		Method:      "DELETE",
 	}
-	doHttpRequest(deregisterAction)
-	fmt.Println("Deregistered application " + e.appName + ", exiting. Check Eureka...")
+	var result bool
+	for _,url := range e.discoveryServerUrls {
+		deregisterAction.Url = url + "/eureka/apps/" + e.appName + "/" + e.instanceId
+		result = doHttpRequest(deregisterAction)
+		if result {
+			fmt.Println("Deregistered application " + e.appName + ", exiting. Check Eureka...")
+			break
+		} else {
+			fmt.Println("Retry deregister...")
+		}
+	}
 }
 
 // get Intranet Ip
