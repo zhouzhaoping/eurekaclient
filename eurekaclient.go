@@ -211,6 +211,11 @@ func (e *EurekaClient)GetRandomServerAddress() string {
 	rand.Seed(time.Now().Unix())
 
 	e.mu.Lock()
+	if e.instances == nil {
+		e.mu.Unlock()
+		fmt.Println("can not get address")
+		return ""
+	}
 	i := rand.Intn(len(e.instances))
 	for _, ins := range(e.instances){
 		address := ins.IpAddr + ":" + strconv.Itoa(ins.Port.Port)
