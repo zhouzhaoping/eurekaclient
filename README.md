@@ -17,3 +17,6 @@ eureka version = 1
 1. cache instance, StartUpdateInstance() update every 30s [11.27]
 2. choice register center, in order [11.28]
 3. instance need sync [11.28]
+4. url retry isolation region [todo]
+5. instance Incremental update [todo]
+6. choice register center by network latency [todo]
