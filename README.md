@@ -14,10 +14,10 @@ eureka version = 1
 1. Fetch Registries：update in StartUpdateInstance(), get address in GetRandomServerAddress()
 
 ## TODO
-1. cache instance, StartUpdateInstance() update every 30s [11.27]
-2. choice register center, in order [11.28]
-3. instance need sync [11.28]
+1. cache instance, StartUpdateInstance() update every 30s [2018.11.27]
+2. choice register center, in order [2018.11.28]
+3. instance need sync [2018.11.28]
 4. url retry isolation region [todo]
 5. instance Incremental update [todo]
 6. choice register center by network latency [todo]
-7. use vgo and go1.12
+7. use vgo and go1.12 [2019.02.27]
