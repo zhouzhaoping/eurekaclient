@@ -20,3 +20,4 @@ eureka version = 1
 4. url retry isolation region [todo]
 5. instance Incremental update [todo]
 6. choice register center by network latency [todo]
+7. use vgo and go1.12

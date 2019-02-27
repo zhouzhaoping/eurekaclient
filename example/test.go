@@ -1,7 +1,7 @@
 package main
 
 import (
-	"../../eurekaclient"
+	"github.com/zhouzhaoping/eurekaclient"
 )
 
 func main(){
